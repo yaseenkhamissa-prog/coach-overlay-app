@@ -1,26 +1,25 @@
 // =====================================
-// Coach Overlay App - Full Clean Rewrite
+// Coach Overlay App - app.js (Vercel API enabled)
+// Requires in index.html ABOVE app.js:
+// <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 //
-// HTML IDs expected (from index.html):
+// HTML IDs expected:
 // status, captureStatus, currentTip, tipHistory
 // screenPreview (video), captureCanvas (canvas)
 // gameMode (select), customGame (input)
 //
-// Buttons call these functions:
+// Buttons call:
 // startCoaching(), stopCoaching(), simulateTip(), resetTipHistory()
 // startScreenShare(), stopScreenShare()
 // setGameMode(value), setCustomGame(value)
-//
-// Requires in index.html ABOVE app.js:
-// <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 // =====================================
 
 // ---------- SETTINGS ----------
-const FRAME_CAPTURE_INTERVAL_MS = 2000; // OCR every 2 seconds while coaching
-const SCALE = 0.5;                      // lower = faster (0.4–0.7)
-const UPSCALE = 3;                      // 2 or 3 helps small text
-const TIP_COOLDOWN_MS = 6000;           // prevent tip spam
-const SPEAK_TIPS = true;                // set false to disable voice
+const FRAME_CAPTURE_INTERVAL_MS = 2000;
+const SCALE = 0.5;     // lower = faster capture
+const UPSCALE = 3;     // helps small HUD text
+const TIP_COOLDOWN_MS = 4500;
+const SPEAK_TIPS = true;
 
 // HUD crop sizes (bottom corners)
 let HUD_KEEP_W = 0.50;
@@ -46,7 +45,6 @@ let customGame = localStorage.getItem("customGame") || "";
 function saveHistory() {
   localStorage.setItem("tipHistory", JSON.stringify(tipHistory));
 }
-
 function loadHistory() {
   const saved = localStorage.getItem("tipHistory");
   if (!saved) return;
@@ -54,28 +52,24 @@ function loadHistory() {
   catch { tipHistory = []; }
 }
 
-// ---------- UI HELPERS ----------
+// ---------- UI ----------
 function setStatus(text) {
   const el = document.getElementById("status");
   if (el) el.innerText = text;
 }
-
 function setCaptureStatus(text) {
   const el = document.getElementById("captureStatus");
   if (el) el.innerText = text;
 }
-
 function setCurrentTip(text) {
   const el = document.getElementById("currentTip");
   if (el) el.innerText = text;
 }
-
 function renderHistory() {
   const ul = document.getElementById("tipHistory");
   if (!ul) return;
 
   ul.innerHTML = "";
-
   for (let i = 0; i < tipHistory.length; i++) {
     const li = document.createElement("li");
 
@@ -87,16 +81,6 @@ function renderHistory() {
     trash.style.cursor = "pointer";
     trash.style.marginLeft = "10px";
     trash.style.color = "#999";
-    trash.style.transition = "color 0.15s ease, transform 0.15s ease";
-
-    trash.onmouseenter = () => {
-      trash.style.color = "red";
-      trash.style.transform = "scale(1.2)";
-    };
-    trash.onmouseleave = () => {
-      trash.style.color = "#999";
-      trash.style.transform = "scale(1)";
-    };
 
     trash.onclick = () => {
       tipHistory.splice(i, 1);
@@ -109,7 +93,6 @@ function renderHistory() {
     ul.appendChild(li);
   }
 }
-
 function renderAll() {
   setStatus(isCoaching ? "Status: Coaching ON" : "Status: Not running");
   renderHistory();
@@ -150,61 +133,11 @@ function resetTipHistory() {
   renderHistory();
 }
 
-// Simulate Tip = OCR once
 function simulateTip() {
   captureFrameAndOCR(true);
 }
 
 // ---------- GAME MODE ----------
-function setGameMode(mode) {
-  gameMode = mode;
-  localStorage.setItem("gameMode", mode);
-
-  applyModeSettings(mode);
-
-  addTip(`Game mode set to: ${labelForMode(mode)}`, { force: true });
-}
-
-function setCustomGame(name) {
-  customGame = name;
-  localStorage.setItem("customGame", name);
-
-  const typed = name.trim().toLowerCase();
-  const sel = document.getElementById("gameMode");
-
-  if (!typed) return;
-
-  // Auto-pick known games -> preset modes
-  if (typed.includes("fortnite") || typed === "fn") {
-    gameMode = "fortnite";
-  } else if (
-    typed.includes("call of duty") ||
-    typed.includes("cod") ||
-    typed.includes("warzone") ||
-    typed.includes("modern warfare")
-  ) {
-    gameMode = "cod";
-  } else if (typed.includes("valorant") || typed.includes("valo")) {
-    gameMode = "valorant";
-  } else {
-    gameMode = "custom";
-  }
-
-  localStorage.setItem("gameMode", gameMode);
-  if (sel) sel.value = gameMode;
-
-  applyModeSettings(gameMode);
-
-  if (gameMode === "custom") {
-    addTip(`Custom game: ${name} (no preset found)`, { force: true });
-
-    // Optional “internet scan” hook (requires your own backend):
-    // tryLoadUnknownGameSettingsFromBackend(name);
-  } else {
-    addTip(`Auto-detected: ${labelForMode(gameMode)}`, { force: true });
-  }
-}
-
 function labelForMode(mode) {
   if (mode === "fortnite") return "FORTNITE";
   if (mode === "cod") return "CALL OF DUTY";
@@ -213,47 +146,89 @@ function labelForMode(mode) {
 }
 
 function applyModeSettings(mode) {
-  // You can tune these per game later.
-  // (Right now these are safe defaults.)
-  if (mode === "fortnite") {
-    HUD_KEEP_W = 0.50;
-    HUD_KEEP_H = 0.45;
-  } else if (mode === "cod") {
-    HUD_KEEP_W = 0.50;
-    HUD_KEEP_H = 0.45;
-  } else if (mode === "valorant") {
-    HUD_KEEP_W = 0.50;
-    HUD_KEEP_H = 0.45;
-  } else {
-    HUD_KEEP_W = 0.50;
-    HUD_KEEP_H = 0.45;
-  }
+  // default crop values (you can tune later)
+  HUD_KEEP_W = 0.50;
+  HUD_KEEP_H = 0.45;
+
+  // leaving custom clears custom preference
+  if (mode !== "custom") localStorage.removeItem("customPreferSide");
 }
 
-// ---- OPTIONAL BACKEND HOOK (for “scan internet” later) ----
-// Browsers can’t reliably scrape the internet directly (CORS + blocked sites).
-// If YOU host a backend endpoint, you can enable this.
-/*
+function setGameMode(mode) {
+  gameMode = mode;
+  localStorage.setItem("gameMode", mode);
+  applyModeSettings(mode);
+  addTip(`Game mode set to: ${labelForMode(mode)}`, { force: true });
+}
+
+// Debounce backend lookups so it doesn't spam while typing
+let lookupTimer = null;
+
+function setCustomGame(name) {
+  customGame = name;
+  localStorage.setItem("customGame", name);
+
+  const typed = name.trim().toLowerCase();
+  const sel = document.getElementById("gameMode");
+  if (!typed) return;
+
+  // Presets (only these 3)
+  if (typed.includes("fortnite") || typed === "fn") gameMode = "fortnite";
+  else if (typed.includes("valorant") || typed.includes("valo")) gameMode = "valorant";
+  else if (
+    typed.includes("call of duty") ||
+    typed.includes("cod") ||
+    typed.includes("warzone") ||
+    typed.includes("modern warfare")
+  ) gameMode = "cod";
+  else gameMode = "custom";
+
+  localStorage.setItem("gameMode", gameMode);
+  if (sel) sel.value = gameMode;
+
+  applyModeSettings(gameMode);
+
+  if (gameMode !== "custom") {
+    addTip(`Auto-detected: ${labelForMode(gameMode)}`, { force: true });
+    return;
+  }
+
+  // Unknown/custom -> call your Vercel API
+  addTip(`Custom game: ${name} (looking up settings…)`, { force: true });
+
+  if (lookupTimer) clearTimeout(lookupTimer);
+  lookupTimer = setTimeout(() => {
+    tryLoadUnknownGameSettingsFromBackend(name);
+  }, 500);
+}
+
+// ✅ THIS IS THE FETCH YOU NEED
 async function tryLoadUnknownGameSettingsFromBackend(gameName) {
   try {
-    const res = await fetch(`/api/game-settings?name=${encodeURIComponent(gameName)}`);
-    if (!res.ok) return;
+    const url = `${location.origin}/api/game-settings?name=${encodeURIComponent(gameName)}`;
+    const res = await fetch(url, { cache: "no-store" });
+
+    if (!res.ok) {
+      addTip("Game settings API error (not OK).", { force: true });
+      return;
+    }
+
     const data = await res.json();
 
-    // Example expected response:
-    // { preferSide: "right"|"left", keepW: 0.5, keepH: 0.45 }
     if (typeof data.keepW === "number") HUD_KEEP_W = data.keepW;
     if (typeof data.keepH === "number") HUD_KEEP_H = data.keepH;
 
-    // If preferSide exists, we’ll store it (used in chooseTextByMode)
     if (data.preferSide === "right" || data.preferSide === "left") {
       localStorage.setItem("customPreferSide", data.preferSide);
+      addTip(`Auto-configured: prefer ${data.preferSide.toUpperCase()} HUD`, { force: true });
+    } else {
+      addTip("Auto-configured (no side preference).", { force: true });
     }
-
-    addTip(`Loaded settings for ${gameName}`, { force: true });
-  } catch {}
+  } catch (e) {
+    console.log(e);
+    addTip("Could not reach game settings API.", { force: true });
+  }
 }
-*/
 
 // ---------- COACHING ----------
 function startCoaching() {
@@ -261,7 +236,6 @@ function startCoaching() {
   renderAll();
   startAutoCapture();
 }
-
 function stopCoaching() {
   isCoaching = false;
   renderAll();
@@ -271,11 +245,7 @@ function stopCoaching() {
 // ---------- SCREEN SHARE ----------
 async function startScreenShare() {
   try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: false
-    });
-
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     const video = document.getElementById("screenPreview");
     if (video) video.srcObject = screenStream;
 
@@ -311,16 +281,11 @@ function captureFrameAndOCR(isManual) {
   const canvas = document.getElementById("captureCanvas");
   if (!canvas) return setCaptureStatus("Error: captureCanvas not found.");
 
-  // FPS boost: downscale capture
   canvas.width = Math.floor(video.videoWidth * SCALE);
   canvas.height = Math.floor(video.videoHeight * SCALE);
 
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(
-    video,
-    0, 0, video.videoWidth, video.videoHeight,
-    0, 0, canvas.width, canvas.height
-  );
+  ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, 0, 0, canvas.width, canvas.height);
 
   setCaptureStatus("Captured at " + new Date().toLocaleTimeString());
   runOCRFromCanvas(canvas, isManual);
@@ -332,24 +297,19 @@ async function runOCRFromCanvas(canvas, isManual) {
     if (isManual) addTip("OCR library not loaded. Check index.html script tags.", { force: true });
     return;
   }
-
   if (ocrBusy) return;
   ocrBusy = true;
 
   try {
-    // Crop both bottom corners
     const rightCrop = cropBottomRight(canvas, HUD_KEEP_W, HUD_KEEP_H);
-    const leftCrop  = cropBottomLeft(canvas, HUD_KEEP_W, HUD_KEEP_H);
+    const leftCrop = cropBottomLeft(canvas, HUD_KEEP_W, HUD_KEEP_H);
 
-    // Preprocess
     const rightPrepped = prepForOCR(rightCrop);
-    const leftPrepped  = prepForOCR(leftCrop);
+    const leftPrepped = prepForOCR(leftCrop);
 
-    // OCR
     const rightText = await ocrCanvas(rightPrepped);
-    const leftText  = await ocrCanvas(leftPrepped);
+    const leftText = await ocrCanvas(leftPrepped);
 
-    // Choose based on mode
     const chosenRaw = chooseTextByMode(rightText, leftText);
     const textRaw = (chosenRaw || "").toUpperCase().trim();
 
@@ -358,11 +318,10 @@ async function runOCRFromCanvas(canvas, isManual) {
       return;
     }
 
-    // Avoid repeating same OCR in auto mode
     if (!isManual && textRaw === lastSeenText) return;
     lastSeenText = textRaw;
 
-    // 1) HP number detection
+    // Health number detection
     const hp = getHealthFromText(textRaw);
     if (hp !== null) {
       if (hp <= 25 && lastTipType !== "HP_CRITICAL") {
@@ -375,7 +334,7 @@ async function runOCRFromCanvas(canvas, isManual) {
       }
     }
 
-    // 2) Keyword tips
+    // Keyword tips
     const compact = normalizeForMatching(textRaw);
 
     if ((compact.includes("LOW") && (compact.includes("HEALTH") || compact.includes("HP"))) && lastTipType !== "LOW_HP") {
@@ -390,7 +349,7 @@ async function runOCRFromCanvas(canvas, isManual) {
 
     if ((compact.includes("DEFEAT") || compact.includes("ELIMINATED") || compact.includes("YOUDIED")) && lastTipType !== "DEATH") {
       lastTipType = "DEATH";
-      return addTip("Eliminated — think: positioning, timing, or over‑peeking?");
+      return addTip("Eliminated — think: positioning, timing, or over-peeking?");
     }
 
     if ((compact.includes("VICTORY") || compact.includes("WIN")) && lastTipType !== "WIN") {
@@ -398,9 +357,7 @@ async function runOCRFromCanvas(canvas, isManual) {
       return addTip("Win — repeat what worked that round.");
     }
 
-    if (isManual) {
-      addTip('No match yet. Try showing "HP 50" or "LOW HEALTH" on screen.', { force: true });
-    }
+    if (isManual) addTip('No match yet. Try showing "HP 50" or "LOW HEALTH" on screen.', { force: true });
   } catch (e) {
     console.error("OCR error:", e);
     if (isManual) addTip("OCR error. Open Console for details.", { force: true });
@@ -416,10 +373,10 @@ function chooseTextByMode(rightText, leftText) {
   if (gameMode === "fortnite") return rScore > 0 ? rightText : leftText;
   if (gameMode === "valorant" || gameMode === "cod") return lScore > 0 ? leftText : rightText;
 
-  // custom: pick best score, OR use stored preference if you later add it
+  // custom: use backend preference if present
   const prefer = localStorage.getItem("customPreferSide");
   if (prefer === "right") return rScore > 0 ? rightText : leftText;
-  if (prefer === "left")  return lScore > 0 ? leftText : rightText;
+  if (prefer === "left") return lScore > 0 ? leftText : rightText;
 
   return rScore >= lScore ? rightText : leftText;
 }
@@ -468,7 +425,6 @@ function getHealthFromText(rawText) {
     }
   }
 
-  // fallback: any standalone number (0-200)
   const onlyNumber = t.match(/\b(\d{1,3})\b/);
   if (onlyNumber) {
     const n = parseInt(onlyNumber[1], 10);
@@ -577,12 +533,10 @@ function stopAutoCapture() {
 loadHistory();
 renderAll();
 
-// sync saved dropdown + input
 const modeSelect = document.getElementById("gameMode");
 if (modeSelect) modeSelect.value = gameMode;
 
 const customInput = document.getElementById("customGame");
 if (customInput) customInput.value = customGame;
 
-// apply settings based on saved mode
 applyModeSettings(gameMode);

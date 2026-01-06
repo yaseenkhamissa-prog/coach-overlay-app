@@ -1,211 +1,149 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Coach Overlay App</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- OCR Library (REQUIRED) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
   <style>
     body {
       font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
       padding: 20px;
-      min-height: 100vh;
-
-      /* Black → Neon Blue gradient */
-      background: linear-gradient(
-        to bottom,
-        #000000 0%,
-        #050b1a 30%,
-        #0a1cff 100%
-      );
-
-      color: white;
     }
 
-    h1 { margin: 0 0 10px; }
-
-    .tag-row {
-      display: flex;
-      gap: 12px;
-      margin-top: 10px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
+    h1 {
+      margin-top: 0;
     }
 
-    .tag-box {
-      padding: 8px 14px;
-      border: 1px solid #1e3cff;
-      border-radius: 8px;
-      background: rgba(30, 60, 255, 0.1);
-      color: #1e3cff;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-    }
-
-    .tag-box span {
-      color: white;
-      font-weight: normal;
-    }
-
-    .mode-row, .custom-row {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      margin: 10px 0 14px;
-      flex-wrap: wrap;
-    }
-
-    label { color: #fff; font-weight: 700; }
-
-    select, input {
-      padding: 8px 10px;
+    .section {
+      background: #111827;
       border-radius: 10px;
-      border: 1px solid #1e3cff;
-      background: rgba(0,0,0,0.55);
-      color: #fff;
-      outline: none;
-    }
-
-    input { width: 260px; }
-
-    .panel {
-      border: 1px solid rgba(30,60,255,0.4);
-      background: rgba(0,0,0,0.45);
-      border-radius: 14px;
-      padding: 14px;
-      margin: 14px 0;
-      box-shadow: 0 0 18px rgba(30,60,255,0.15);
-    }
-
-    .btn-row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin: 10px 0;
+      padding: 15px;
+      margin-bottom: 20px;
     }
 
     button {
-      background: rgba(0,0,0,0.55);
+      background: #2563eb;
       color: white;
-      border: 1px solid #1e3cff;
-      border-radius: 10px;
-      padding: 10px 12px;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
       cursor: pointer;
-      transition: transform 0.12s ease, background 0.12s ease;
-      font-weight: 700;
+      font-size: 14px;
     }
 
     button:hover {
-      background: #1e3cff;
-      color: black;
-      transform: translateY(-1px);
+      background: #1d4ed8;
     }
 
-    button.danger {
-      border-color: rgba(255, 0, 0, 0.6);
+    button.secondary {
+      background: #374151;
     }
-    button.danger:hover {
-      background: rgba(255,0,0,0.9);
-      color: white;
+
+    input, select {
+      padding: 6px;
+      border-radius: 6px;
+      border: none;
+      margin-right: 6px;
     }
 
     #screenPreview {
       width: 100%;
-      max-width: 900px;
-      border-radius: 14px;
-      border: 1px solid rgba(30,60,255,0.5);
-      background: rgba(0,0,0,0.35);
+      max-height: 300px;
+      background: black;
+      border-radius: 8px;
       margin-top: 10px;
     }
 
-    .small {
-      opacity: 0.85;
-      font-size: 13px;
-      margin-top: 6px;
+    #captureCanvas {
+      display: none;
     }
 
-    .tip {
-      font-size: 18px;
-      font-weight: 800;
-      margin: 8px 0 0;
-      color: white;
+    ul {
+      padding-left: 20px;
     }
-
-    ul { margin: 10px 0 0; padding-left: 18px; }
-    li { margin: 6px 0; }
   </style>
 </head>
 
 <body>
-  <h1>Coach Overlay App</h1>
 
-  <div class="tag-row">
-    <div class="tag-box">Optimized for Shooter Games</div>
-    <div class="tag-box">
-      Recommended Games: <span>Fortnite, Valorant, Call of Duty</span>
-    </div>
+  <h1>🎮 Coach Overlay</h1>
+
+  <!-- STATUS -->
+  <div class="section">
+    <p id="status">Status: Not running</p>
+    <p id="captureStatus">No screen shared</p>
   </div>
 
-  <div class="mode-row">
-    <label for="gameMode">Game Mode:</label>
+  <!-- GAME MODE -->
+  <div class="section">
+    <h3>Game Mode</h3>
+
+    <label for="gameMode">Preset:</label>
     <select id="gameMode" onchange="setGameMode(this.value)">
       <option value="fortnite">Fortnite</option>
       <option value="valorant">Valorant</option>
       <option value="cod">Call of Duty</option>
       <option value="custom">Custom</option>
     </select>
-  </div>
 
-  <div class="custom-row">
+    <br><br>
+
     <label for="customGame">Other game:</label>
     <input
       id="customGame"
       type="text"
-      placeholder="Search / type a game name…"
-      oninput="setCustomGame(this.value)"
+      placeholder="Type game name (e.g. CS2)"
     />
+    <button onclick="submitCustomGame()">Submit</button>
   </div>
 
-  <div class="panel">
-    <div id="status"><b>Status:</b> Not running</div>
+  <!-- CONTROLS -->
+  <div class="section">
+    <h3>Controls</h3>
 
-    <div class="btn-row">
-      <button onclick="startCoaching()">Start Coaching</button>
-      <button onclick="stopCoaching()">Stop Coaching</button>
-      <button onclick="simulateTip()">Simulate Tip</button>
-      <button class="danger" onclick="resetTipHistory()">Reset Tip History</button>
-    </div>
+    <button onclick="startScreenShare()">Share Screen</button>
+    <button onclick="stopScreenShare()" class="secondary">Stop Share</button>
+
+    <br><br>
+
+    <button onclick="startCoaching()">Start Coaching</button>
+    <button onclick="stopCoaching()" class="secondary">Stop Coaching</button>
+
+    <br><br>
+
+    <button onclick="simulateTip()">Simulate Tip</button>
+    <button onclick="resetTipHistory()" class="secondary">Clear Tips</button>
   </div>
 
-  <div class="panel">
-    <div class="btn-row">
-      <button onclick="startScreenShare()">Share Screen</button>
-      <button onclick="stopScreenShare()">Stop Sharing</button>
-    </div>
-
-    <div id="captureStatus" class="small">No frame captured yet.</div>
-
-    <video id="screenPreview" autoplay playsinline muted></video>
-
-    <!-- Hidden/utility canvas used for capturing frames -->
-    <canvas id="captureCanvas" style="display:none;"></canvas>
+  <!-- VIDEO / OCR -->
+  <div class="section">
+    <h3>Screen Preview</h3>
+    <video id="screenPreview" autoplay muted></video>
+    <canvas id="captureCanvas"></canvas>
   </div>
 
-  <div class="panel">
-    <div><b>Current Tip:</b></div>
-    <div id="currentTip" class="tip">No tip yet.</div>
+  <!-- CURRENT TIP -->
+  <div class="section">
+    <h3>Current Tip</h3>
+    <p id="currentTip">No tip yet.</p>
   </div>
 
-  <div class="panel">
-    <div><b>Tip History:</b></div>
+  <!-- TIP HISTORY -->
+  <div class="section">
+    <h3>Tip History</h3>
     <ul id="tipHistory"></ul>
   </div>
 
-  <!-- OCR library -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- MAIN APP SCRIPT -->
+  <script src="app.js"></script>
 
-  <!-- Your app logic -->
-  <script src="./app.js"></script>
 </body>
 </html>

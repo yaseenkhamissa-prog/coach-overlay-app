@@ -1,41 +1,112 @@
 // =====================================
-// Coach Overlay App - app.js (Vercel API enabled)
+// Coach Overlay App - app.js (Full Rewrite)
+// - OCR reads HUD signals (HP/reload/storm/etc)
+// - Outputs REAL tips from tip banks (never repeats OCR text)
+// - Vercel API enabled: /api/game-settings
+//
 // Requires in index.html ABOVE app.js:
 // <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 //
-// HTML IDs expected:
+// Expected HTML IDs:
 // status, captureStatus, currentTip, tipHistory
 // screenPreview (video), captureCanvas (canvas)
 // gameMode (select), customGame (input)
 //
 // Buttons call:
-// startCoaching(), stopCoaching(), simulateTip(), resetTipHistory()
 // startScreenShare(), stopScreenShare()
-// setGameMode(value), setCustomGame(value)
+// startCoaching(), stopCoaching()
+// simulateTip(), resetTipHistory()
+// setGameMode(this.value), setCustomGame(this.value)
 // =====================================
 
 // ---------- SETTINGS ----------
 const FRAME_CAPTURE_INTERVAL_MS = 2000;
-const SCALE = 0.5;     // lower = faster capture
-const UPSCALE = 3;     // helps small HUD text
-const TIP_COOLDOWN_MS = 4500;
+const SCALE = 0.5;
+const UPSCALE = 3;
+const TIP_COOLDOWN_MS = 3500;     // shorter is more responsive
 const SPEAK_TIPS = true;
 
-// HUD crop sizes (bottom corners)
+// Crop size (bottom corners)
 let HUD_KEEP_W = 0.50;
 let HUD_KEEP_H = 0.45;
+
+// ---------- TIP BANKS (REAL TIPS) ----------
+const TIP_BANK = {
+  fortnite: {
+    lowHp: [
+      "Heal ASAP, then reposition. Don’t re-peek while weak.",
+      "Play cover first—box up or use natural cover before healing.",
+      "If you’re low, disengage and reset instead of forcing it."
+    ],
+    criticalHp: [
+      "CRITICAL HP—hard cover NOW, then heal immediately.",
+      "You’re one-shot. Break line-of-sight, then heal."
+    ],
+    reload: [
+      "Reload behind cover—don’t wide peek while reloading.",
+      "Weapon swap is faster than reloading. Use your inventory order."
+    ],
+    storm: [
+      "Check map + rotate early. Don’t get stuck running from storm.",
+      "Use storm edge to reduce angles enemies can shoot from."
+    ],
+    eliminated: [
+      "Reset: next fight, use cover longer and don’t over-peek.",
+      "Think: positioning, timing, or tunnel vision—fix one thing next round."
+    ],
+    win: [
+      "Nice. Repeat what worked: cover + timing + smart rotates.",
+      "Good game—keep your inventory order consistent for faster swaps."
+    ],
+    general: [
+      "Turn on Visualize Sound Effects. Huge awareness advantage.",
+      "Prioritize high ground in fights. Better angles, harder to hit you.",
+      "Keep moving—even while looting/healing. Don’t be a free snipe.",
+      "Carry heals + mobility. Use shields when you find them."
+    ]
+  },
+
+  genericShooter: {
+    lowHp: [
+      "Low health—stop wide peeking. Heal behind cover first.",
+      "Break line-of-sight, then heal. Don’t ego-challenge on low HP."
+    ],
+    criticalHp: [
+      "CRITICAL—hard cover NOW. Reset the fight and heal.",
+      "One-shot danger. Disengage and heal immediately."
+    ],
+    reload: [
+      "Reload behind cover, not in the open.",
+      "Swap weapons instead of reloading in a close fight."
+    ],
+    eliminated: [
+      "Eliminated—review: were you exposed too long or fighting without cover?",
+      "Next fight: pre-aim common angles and use cover discipline."
+    ],
+    win: [
+      "Nice. Keep the same good habits: cover, timing, and repositioning."
+    ],
+    general: [
+      "Don’t stand still—strafe and reposition between shots.",
+      "Take fights with cover. Minimize how much of you is visible."
+    ]
+  }
+};
+
+function pickTip(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
 
 // ---------- STATE ----------
 let isCoaching = false;
 let screenStream = null;
-
-let tipHistory = [];
 let autoCaptureIntervalId = null;
 
+let tipHistory = [];
 let ocrBusy = false;
 let lastSeenText = "";
-let lastTipType = "";
 let lastTipTime = 0;
+let lastTipKey = ""; // prevents spam of same “type” tip
 
 // Game mode state
 let gameMode = localStorage.getItem("gameMode") || "fortnite"; // fortnite | valorant | cod | custom
@@ -81,7 +152,6 @@ function renderHistory() {
     trash.style.cursor = "pointer";
     trash.style.marginLeft = "10px";
     trash.style.color = "#999";
-
     trash.onclick = () => {
       tipHistory.splice(i, 1);
       saveHistory();
@@ -125,8 +195,14 @@ function addTip(text, opts = {}) {
   speakTip(text);
 }
 
+function addTipOnceByKey(key, text) {
+  if (key === lastTipKey) return;
+  lastTipKey = key;
+  addTip(text);
+}
+
 function resetTipHistory() {
-  if (!confirm("Are you sure you want to delete all tips?")) return;
+  if (!confirm("Delete all tips?")) return;
   tipHistory = [];
   saveHistory();
   setCurrentTip("No tip yet.");
@@ -146,11 +222,9 @@ function labelForMode(mode) {
 }
 
 function applyModeSettings(mode) {
-  // default crop values (you can tune later)
   HUD_KEEP_W = 0.50;
   HUD_KEEP_H = 0.45;
 
-  // leaving custom clears custom preference
   if (mode !== "custom") localStorage.removeItem("customPreferSide");
 }
 
@@ -161,7 +235,7 @@ function setGameMode(mode) {
   addTip(`Game mode set to: ${labelForMode(mode)}`, { force: true });
 }
 
-// Debounce backend lookups so it doesn't spam while typing
+// Debounce backend lookups while typing
 let lookupTimer = null;
 
 function setCustomGame(name) {
@@ -172,7 +246,7 @@ function setCustomGame(name) {
   const sel = document.getElementById("gameMode");
   if (!typed) return;
 
-  // Presets (only these 3)
+  // Presets:
   if (typed.includes("fortnite") || typed === "fn") gameMode = "fortnite";
   else if (typed.includes("valorant") || typed.includes("valo")) gameMode = "valorant";
   else if (
@@ -193,7 +267,6 @@ function setCustomGame(name) {
     return;
   }
 
-  // Unknown/custom -> call your Vercel API
   addTip(`Custom game: ${name} (looking up settings…)`, { force: true });
 
   if (lookupTimer) clearTimeout(lookupTimer);
@@ -202,17 +275,15 @@ function setCustomGame(name) {
   }, 500);
 }
 
-// ✅ THIS IS THE FETCH YOU NEED
+// ✅ API lookup (your Vercel backend)
 async function tryLoadUnknownGameSettingsFromBackend(gameName) {
   try {
     const url = `${location.origin}/api/game-settings?name=${encodeURIComponent(gameName)}`;
     const res = await fetch(url, { cache: "no-store" });
-
     if (!res.ok) {
-      addTip("Game settings API error (not OK).", { force: true });
+      addTip("Game settings API error.", { force: true });
       return;
     }
-
     const data = await res.json();
 
     if (typeof data.keepW === "number") HUD_KEEP_W = data.keepW;
@@ -228,18 +299,6 @@ async function tryLoadUnknownGameSettingsFromBackend(gameName) {
     console.log(e);
     addTip("Could not reach game settings API.", { force: true });
   }
-}
-
-// ---------- COACHING ----------
-function startCoaching() {
-  isCoaching = true;
-  renderAll();
-  startAutoCapture();
-}
-function stopCoaching() {
-  isCoaching = false;
-  renderAll();
-  stopAutoCapture();
 }
 
 // ---------- SCREEN SHARE ----------
@@ -270,10 +329,21 @@ function stopScreenShare() {
   setCaptureStatus("Stopped sharing.");
 }
 
+// ---------- COACHING ----------
+function startCoaching() {
+  isCoaching = true;
+  renderAll();
+  startAutoCapture();
+}
+function stopCoaching() {
+  isCoaching = false;
+  renderAll();
+  stopAutoCapture();
+}
+
 // ---------- CAPTURE ----------
 function captureFrameAndOCR(isManual) {
   const video = document.getElementById("screenPreview");
-
   if (!video) return setCaptureStatus("Error: screenPreview not found.");
   if (!video.srcObject) return setCaptureStatus("Click Share Screen first.");
   if (!video.videoWidth || !video.videoHeight) return setCaptureStatus("Waiting for video...");
@@ -289,6 +359,68 @@ function captureFrameAndOCR(isManual) {
 
   setCaptureStatus("Captured at " + new Date().toLocaleTimeString());
   runOCRFromCanvas(canvas, isManual);
+}
+
+// ---------- SIGNAL DETECTION ----------
+function getHealthFromText(rawText) {
+  const t = (rawText || "").toUpperCase().replace(/\s+/g, " ");
+
+  const patterns = [
+    /HP\s*[:\-]?\s*(\d{1,3})/,
+    /HEALTH\s*[:\-]?\s*(\d{1,3})/,
+    /(\d{1,3})\s*HP/,
+    /(\d{1,3})\s*HEALTH/
+  ];
+
+  for (const p of patterns) {
+    const m = t.match(p);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!Number.isNaN(n) && n >= 0 && n <= 300) return n;
+    }
+  }
+
+  // fallback: any number
+  const onlyNumber = t.match(/\b(\d{1,3})\b/);
+  if (onlyNumber) {
+    const n = parseInt(onlyNumber[1], 10);
+    if (!Number.isNaN(n) && n >= 0 && n <= 300) return n;
+  }
+
+  return null;
+}
+
+function detectSignals(textRaw) {
+  const t = (textRaw || "").toUpperCase();
+
+  const hp = getHealthFromText(t);
+  const criticalHp = hp !== null && hp <= 25;
+  const lowHp = hp !== null && hp <= 50;
+
+  const reload = /RELOAD|OUT OF AMMO|NO AMMO|AMMO/.test(t);
+  const storm = /STORM|CIRCLE|SAFE ZONE|ZONE/.test(t);
+  const eliminated = /ELIMINATED|YOU DIED|DEFEAT/.test(t);
+  const win = /VICTORY|WIN/.test(t);
+
+  return { hp, criticalHp, lowHp, reload, storm, eliminated, win };
+}
+
+function chooseTipFromSignals(signals) {
+  // Choose bank based on game mode
+  const bank = (gameMode === "fortnite") ? TIP_BANK.fortnite : TIP_BANK.genericShooter;
+
+  // Priority order
+  if (signals.criticalHp) return { key: "criticalHp", text: pickTip(bank.criticalHp) };
+  if (signals.lowHp) return { key: "lowHp", text: pickTip(bank.lowHp) };
+  if (signals.reload) return { key: "reload", text: pickTip(bank.reload) };
+  if (signals.storm && bank.storm) return { key: "storm", text: pickTip(bank.storm) };
+  if (signals.eliminated) return { key: "eliminated", text: pickTip(bank.eliminated) };
+  if (signals.win) return { key: "win", text: pickTip(bank.win) };
+
+  // Sometimes a general tip (not too spammy)
+  if (Math.random() < 0.12 && bank.general) return { key: "general", text: pickTip(bank.general) };
+
+  return null;
 }
 
 // ---------- OCR ----------
@@ -314,71 +446,30 @@ async function runOCRFromCanvas(canvas, isManual) {
     const textRaw = (chosenRaw || "").toUpperCase().trim();
 
     if (textRaw.length < 3) {
-      if (isManual) addTip("No clear text detected. Try higher UI scale / contrast.", { force: true });
+      if (isManual) addTip("No clear HUD text detected yet.", { force: true });
       return;
     }
 
+    // Stop repeating identical OCR results in auto mode
     if (!isManual && textRaw === lastSeenText) return;
     lastSeenText = textRaw;
 
-    // Health number detection
-    const hp = getHealthFromText(textRaw);
-    if (hp !== null) {
-      if (hp <= 25 && lastTipType !== "HP_CRITICAL") {
-        lastTipType = "HP_CRITICAL";
-        return addTip(`Health is ${hp} — heal NOW and use hard cover.`);
-      }
-      if (hp <= 50 && lastTipType !== "HP_LOW") {
-        lastTipType = "HP_LOW";
-        return addTip(`Health is ${hp} — play safer and look to heal.`);
-      }
+    // ✅ Convert OCR -> signals -> REAL tip
+    const signals = detectSignals(textRaw);
+    const chosen = chooseTipFromSignals(signals);
+
+    if (chosen) {
+      addTipOnceByKey(chosen.key, chosen.text);
+    } else if (isManual) {
+      addTip("No real HUD signal yet—try showing HP / Reload / Storm / Eliminated.", { force: true });
     }
 
-    // Keyword tips
-    const compact = normalizeForMatching(textRaw);
-
-    if ((compact.includes("LOW") && (compact.includes("HEALTH") || compact.includes("HP"))) && lastTipType !== "LOW_HP") {
-      lastTipType = "LOW_HP";
-      return addTip("Low health detected — heal up, play safer, use cover.");
-    }
-
-    if ((compact.includes("RELOAD") || compact.includes("AMMO") || compact.includes("OUTOFAMMO") || compact.includes("OUTAMMO")) && lastTipType !== "RELOAD") {
-      lastTipType = "RELOAD";
-      return addTip("Ammo/reload detected — reload behind cover and avoid wide peeks.");
-    }
-
-    if ((compact.includes("DEFEAT") || compact.includes("ELIMINATED") || compact.includes("YOUDIED")) && lastTipType !== "DEATH") {
-      lastTipType = "DEATH";
-      return addTip("Eliminated — think: positioning, timing, or over-peeking?");
-    }
-
-    if ((compact.includes("VICTORY") || compact.includes("WIN")) && lastTipType !== "WIN") {
-      lastTipType = "WIN";
-      return addTip("Win — repeat what worked that round.");
-    }
-
-    if (isManual) addTip('No match yet. Try showing "HP 50" or "LOW HEALTH" on screen.', { force: true });
   } catch (e) {
     console.error("OCR error:", e);
-    if (isManual) addTip("OCR error. Open Console for details.", { force: true });
+    if (isManual) addTip("OCR error. Check console.", { force: true });
   } finally {
     ocrBusy = false;
   }
-}
-
-function chooseTextByMode(rightText, leftText) {
-  const rScore = scoreOCRText(rightText);
-  const lScore = scoreOCRText(leftText);
-
-  if (gameMode === "fortnite") return rScore > 0 ? rightText : leftText;
-  if (gameMode === "valorant" || gameMode === "cod") return lScore > 0 ? leftText : rightText;
-
-  // custom: use backend preference if present
-  const prefer = localStorage.getItem("customPreferSide");
-  if (prefer === "right") return rScore > 0 ? rightText : leftText;
-  if (prefer === "left") return lScore > 0 ? leftText : rightText;
-
-  return rScore >= lScore ? rightText : leftText;
 }
 
 // ---------- OCR HELPERS ----------
@@ -398,40 +489,19 @@ function scoreOCRText(t) {
   return matches ? matches.length : 0;
 }
 
-function normalizeForMatching(t) {
-  return (t || "")
-    .toUpperCase()
-    .replace(/\s+/g, " ")
-    .replace(/[^A-Z0-9 ]/g, "")
-    .replace(/ /g, "");
-}
+function chooseTextByMode(rightText, leftText) {
+  const rScore = scoreOCRText(rightText);
+  const lScore = scoreOCRText(leftText);
 
-// ---------- HEALTH NUMBER EXTRACTION ----------
-function getHealthFromText(rawText) {
-  const t = (rawText || "").toUpperCase().replace(/\s+/g, " ");
+  if (gameMode === "fortnite") return rScore > 0 ? rightText : leftText;
+  if (gameMode === "valorant" || gameMode === "cod") return lScore > 0 ? leftText : rightText;
 
-  const patterns = [
-    /HP\s*[:\-]?\s*(\d{1,3})/,
-    /HEALTH\s*[:\-]?\s*(\d{1,3})/,
-    /(\d{1,3})\s*HP/,
-    /(\d{1,3})\s*HEALTH/
-  ];
+  // custom: use backend preference if present
+  const prefer = localStorage.getItem("customPreferSide");
+  if (prefer === "right") return rScore > 0 ? rightText : leftText;
+  if (prefer === "left") return lScore > 0 ? leftText : rightText;
 
-  for (const p of patterns) {
-    const m = t.match(p);
-    if (m) {
-      const n = parseInt(m[1], 10);
-      if (!Number.isNaN(n) && n >= 0 && n <= 200) return n;
-    }
-  }
-
-  const onlyNumber = t.match(/\b(\d{1,3})\b/);
-  if (onlyNumber) {
-    const n = parseInt(onlyNumber[1], 10);
-    if (!Number.isNaN(n) && n >= 0 && n <= 200) return n;
-  }
-
-  return null;
+  return rScore >= lScore ? rightText : leftText;
 }
 
 // ---------- CROPPING ----------
@@ -503,6 +573,7 @@ function boostContrast(sourceCanvas) {
     const r = d[i], g = d[i + 1], b = d[i + 2];
     let gray = (r + g + b) / 3;
 
+    // contrast boost
     gray = (gray - 128) * 1.6 + 128;
     gray = Math.max(0, Math.min(255, gray));
 
